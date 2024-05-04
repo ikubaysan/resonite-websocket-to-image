@@ -11,7 +11,7 @@ class WebSocketImageClient:
         self.width = 100
         self.height = 100
 
-    async def send_data(self):
+    async def send_random_image(self):
         uri = f"ws://localhost:{self.port}"
         async with websockets.connect(uri) as websocket:
             await websocket.send(str(self.width))
@@ -28,4 +28,4 @@ class WebSocketImageClient:
 
 if __name__ == "__main__":
     client = WebSocketImageClient(PORT)
-    asyncio.run(client.send_data())
+    asyncio.run(client.send_random_image())
