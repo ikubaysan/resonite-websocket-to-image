@@ -17,8 +17,11 @@ class WebSocketImageServer:
 
     async def handler(self, websocket, path):
         async for message in websocket:
-            if self.image_ready:
-                continue  # Ignore messages if an image has already been formed
+            if self.image_ready and not self.is_start_of_new_image(message):
+                continue  # Ignore messages if an image has been formed and it's not a start of a new image
+
+            if self.is_start_of_new_image(message):
+                self.reset()  # Reset for new image when a new image is indicated by a start message
 
             if self.width == 0 or self.height == 0:
                 print(f"Received message when width or height is 0: {message}")
@@ -45,9 +48,9 @@ class WebSocketImageServer:
         filename = f"{int(time.time())}.png"
         image.save(filename)
         print(f"Image saved as {filename}")
-        self.reset()
 
     def reset(self):
+        print("Resetting server state for new image.")
         self.width = 0
         self.height = 0
         self.pixels = []
@@ -69,6 +72,11 @@ class WebSocketImageServer:
         # Assuming message format is "[width; height]"
         dimensions = message.strip('[]').split(';')
         return int(dimensions[0].strip()), int(dimensions[1].strip())
+
+    @staticmethod
+    def is_start_of_new_image(message: str) -> bool:
+        # Consider it a start of a new image if it's a number or combined dimensions
+        return message.isdigit() or (message.startswith('[') and ';' in message)
 
     async def start_server(self):
         server = await websockets.serve(self.handler, "localhost", self.port)
