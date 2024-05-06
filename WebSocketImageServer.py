@@ -17,6 +17,9 @@ class WebSocketImageServer:
 
     async def handler(self, websocket, path):
         async for message in websocket:
+
+            #print(message)
+
             if self.image_ready and not self.is_start_of_new_image(message):
                 continue  # Ignore messages if an image has been formed and it's not a start of a new image
 
@@ -47,7 +50,7 @@ class WebSocketImageServer:
         image.putdata(pixel_data)
         filename = f"{int(time.time())}.png"
         image.save(filename)
-        print(f"Image saved as {filename}")
+        print(f"Image saved as {filename} with {len(pixel_data)} pixels.")
 
     def reset(self):
         print("Resetting server state for new image.")

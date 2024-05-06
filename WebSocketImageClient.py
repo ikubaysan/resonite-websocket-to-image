@@ -4,7 +4,7 @@ import random
 from PIL import Image
 
 PORT = 8765  # Same port as the server
-SEND_SHORT_HEX = True  # Set to True to send short-form hex codes
+SEND_SHORT_HEX = False  # Set to True to send short-form hex codes
 
 class WebSocketImageClient:
     def __init__(self, port: int):
