@@ -1,6 +1,5 @@
 import asyncio
 import os.path
-
 import websockets
 import datetime
 from PIL import Image
@@ -68,8 +67,13 @@ class WebSocketImageServer:
         pixel_data = [self.hex_to_rgb(hex_color) for hex_color in self.pixels]
         image.putdata(pixel_data)
         filename = f"{int(time.time())}.png"
-        image.save(filename)
-        logging.info(f"Image saved as {filename} with {len(pixel_data)} pixels.")
+
+        # Save path will be ./image_store/ + filename
+        save_image_path = os.path.abspath(os.path.join("image_store", filename))
+        os.makedirs("image_store", exist_ok=True)
+
+        image.save(save_image_path)
+        logging.info(f"Image saved to {save_image_path} with {len(pixel_data)} pixels.")
 
     def reset(self):
         logging.info("Resetting server state for new image.")
@@ -103,7 +107,3 @@ class WebSocketImageServer:
     async def start_server(self):
         server = await websockets.serve(self.handler, host=self.host, port=self.port)
         await server.wait_closed()
-
-if __name__ == "__main__":
-    server = WebSocketImageServer()
-    asyncio.run(server.start_server())
