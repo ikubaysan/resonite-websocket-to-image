@@ -27,6 +27,7 @@ class WebSocketImageServer:
 
         self.width = 0
         self.height = 0
+        self.room_number = 1
         self.latest_pixel_receipt_epoch = 0
         self.chunks_received = 0
         self.pixels = []
@@ -108,6 +109,9 @@ class WebSocketImageServer:
                     elif self.height == 0:
                         self.height = int(message)
                         logging.info(f"Now expecting {self.width * self.height} pixels")
+                elif message in ['1', '2', '3,', '4']:
+                    self.room_number = int(message)
+                    logging.info(f"This image will be uploaded for room number {self.room_number}")
                 elif len(message) != 7 and len(message) != 4:
                     # Client sent a row of pixels
                     self.latest_pixel_receipt_epoch = time.time()
@@ -120,7 +124,7 @@ class WebSocketImageServer:
                     if len(self.pixels) == self.width * self.height:
                         save_image_path = self.save_image()
                         filename = os.path.basename(save_image_path)
-                        await ws.send_str(f"http://{self.domain}:{self.port}/images/{filename}")
+                        await ws.send_str(f"http://{self.domain}:{self.port}/images/room_{self.room_number}/{filename}")
                 else:
                     # Client sent a single pixel
                     self.latest_pixel_receipt_epoch = time.time()
@@ -128,7 +132,7 @@ class WebSocketImageServer:
                     if len(self.pixels) == self.width * self.height:
                         save_image_path = self.save_image()
                         filename = os.path.basename(save_image_path)
-                        await ws.send_str(f"http://{self.domain}:{self.port}/images/{filename}")
+                        await ws.send_str(f"http://{self.domain}:{self.port}/images/room_{self.room_number}/{filename}")
 
     def save_image(self):
         image = Image.new("RGB", (self.width, self.height))
@@ -137,9 +141,9 @@ class WebSocketImageServer:
         filename = f"{int(time.time())}.png"
 
         # Save path will be self.image_store_path + filename
-        save_image_path = os.path.abspath(os.path.join(self.image_store_path, filename))
-        os.makedirs(self.image_store_path, exist_ok=True)
-
+        save_image_path = os.path.abspath(os.path.join(self.image_store_path, f"room_{self.room_number}", filename))
+        os.makedirs(os.path.dirname(save_image_path), exist_ok=True)
+        logging.info(f"Saving image to {save_image_path}")
         image.save(save_image_path)
         logging.info(f"Image saved to {save_image_path} with {len(pixel_data)} pixels.")
         self.image_ready = True
@@ -150,6 +154,7 @@ class WebSocketImageServer:
         self.width = 0
         self.height = 0
         self.chunks_received = 0
+        self.room_number = 1
         self.pixels = []
         self.image_ready = False
 
