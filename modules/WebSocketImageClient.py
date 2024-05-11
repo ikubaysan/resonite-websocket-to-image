@@ -24,12 +24,15 @@ class WebSocketImageClient:
 
     async def send_random_image(self):
         uri = f"ws://{self.host}:{self.port}"
+        websocket_messages_sent = 0
         async with websockets.connect(uri) as websocket:
             await self.send_image_size(websocket, 100, 100, combine=True)
             for _ in range(100 * 100):
                 color = self.generate_random_color()
                 logging.info(f"Sending color: {color}")
                 await websocket.send(color)
+                websocket_messages_sent += 1
+        logging.info(f"Sent {websocket_messages_sent} messages")
 
     async def send_image_size(self, websocket, width: int, height: int, combine: bool):
         if combine:
@@ -61,6 +64,7 @@ class WebSocketImageClient:
         width, height = image.size
         logging.info(f"Image size: {width}x{height}")
         uri = f"ws://localhost:{self.port}"
+        websocket_messages_sent = 0
         async with websockets.connect(uri) as websocket:
             await self.send_image_size(websocket, width, height, combine=True)
             pixels = list(image.getdata())
@@ -68,6 +72,8 @@ class WebSocketImageClient:
                 color = self.rgb_to_hex(pixel)
                 logging.info(f"Sending color: {color}")
                 await websocket.send(color)
+                websocket_messages_sent += 1
+        logging.info(f"Sent {websocket_messages_sent} messages")
 
     def rgb_to_hex(self, rgb: tuple) -> str:
         if self.send_short_hex:
