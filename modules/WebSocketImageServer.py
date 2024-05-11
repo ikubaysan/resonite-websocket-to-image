@@ -11,8 +11,9 @@ import time
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class WebSocketImageServer:
-    def __init__(self, config_file_path: str):
+    def __init__(self, config_file_path: str, image_store_path: str):
         self.config_file_path = os.path.abspath(config_file_path)
+        self.image_store_path = os.path.abspath(image_store_path)
         self.load_config()
 
         self.width = 0
@@ -101,9 +102,9 @@ class WebSocketImageServer:
         image.putdata(pixel_data)
         filename = f"{int(time.time())}.png"
 
-        # Save path will be ./image_store/ + filename
-        save_image_path = os.path.abspath(os.path.join("image_store", filename))
-        os.makedirs("image_store", exist_ok=True)
+        # Save path will be self.image_store_path + filename
+        save_image_path = os.path.abspath(os.path.join(self.image_store_path, filename))
+        os.makedirs(self.image_store_path, exist_ok=True)
 
         image.save(save_image_path)
         logging.info(f"Image saved to {save_image_path} with {len(pixel_data)} pixels.")
