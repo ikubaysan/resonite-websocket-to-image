@@ -14,6 +14,10 @@ class WebSocketImageServer:
     def __init__(self, config_file_path: str, image_store_path: str):
         self.config_file_path = os.path.abspath(config_file_path)
         self.image_store_path = os.path.abspath(image_store_path)
+
+        logging.info(f"Config file path: {self.config_file_path}")
+        logging.info(f"Image store path: {self.image_store_path}")
+
         self.load_config()
 
         self.width = 0
