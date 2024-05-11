@@ -18,6 +18,7 @@ class WebSocketImageServer:
         self.width = 0
         self.height = 0
         self.latest_pixel_receipt_epoch = 0
+        self.rows_received = 0
         self.pixels = []
         self.image_ready = False
 
@@ -65,7 +66,29 @@ class WebSocketImageServer:
                 elif self.height == 0:
                     self.height = int(message)
                     logging.info(f"Now expecting {self.width * self.height} pixels")
+            elif len(message) != 7 and len(message) != 4:
+                # Client sent a row of pixels
+                self.latest_pixel_receipt_epoch = time.time()
+                row_pixels = []
+
+                i = 0
+                while i < len(message):
+                    if self.expect_short_hex:
+                        row_pixels.append(message[i:i+5])
+                        i += 4
+                    else:
+                        row_pixels.append(message[i:i+8])
+                        i += 7
+
+                self.pixels.extend(row_pixels)
+                self.rows_received += 1
+                logging.info(f"Received row of {len(row_pixels)} pixels. "
+                             f"Total received pixels: {len(self.pixels)} Total rows received: {self.rows_received}")
+                if len(self.pixels) == self.width * self.height:
+                    self.save_image()
+                    self.image_ready = True
             else:
+                # Client sent a single pixel
                 self.latest_pixel_receipt_epoch = time.time()
                 self.pixels.append(message)
                 if len(self.pixels) == self.width * self.height:
@@ -89,6 +112,7 @@ class WebSocketImageServer:
         logging.info("Resetting server state for new image.")
         self.width = 0
         self.height = 0
+        self.rows_received = 0
         self.pixels = []
         self.image_ready = False
 
