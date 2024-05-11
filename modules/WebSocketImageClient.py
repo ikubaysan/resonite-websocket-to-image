@@ -20,7 +20,9 @@ class WebSocketImageClient:
         self.port: int = int(config['client']['port'])
         self.send_short_hex: bool = config['client'].getboolean('send_short_hex')
         self.send_pixels_by_row: bool = config['client'].getboolean('send_pixels_by_row')
-        logging.info(f"Config loaded from {self.config_file_path}. Port: {self.port}, "
+        logging.info(f"Config loaded from {self.config_file_path}. "
+                     f"Host: {self.host},"
+                     f"Port: {self.port}, "
                      f"Send short hex: {self.send_short_hex}, "
                      f"Send pixels by row: {self.send_pixels_by_row}")
 
@@ -76,7 +78,7 @@ class WebSocketImageClient:
         image = Image.open(image_path).convert("RGB")
         width, height = image.size
         logging.info(f"Image size: {width}x{height} ({width * height} pixels)")
-        uri = f"ws://localhost:{self.port}"
+        uri = f"ws://{self.host}:{self.port}/ws"
 
         logging.info(f"Sending image from file {image_path} to {uri}")
 

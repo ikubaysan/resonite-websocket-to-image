@@ -1,6 +1,8 @@
 import asyncio
 import os.path
 import websockets
+import aiohttp
+from aiohttp import web
 import datetime
 from PIL import Image
 import time
@@ -44,63 +46,69 @@ class WebSocketImageServer:
                      f"Pixel receipt timeout seconds: {self.pixel_receipt_timeout_seconds}")
 
 
-    async def handler(self, websocket, path):
-        async for message in websocket:
 
-            if self.print_received_messages:
-                logging.info(message)
+    async def websocket_handler(self, request):
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
 
-            # Reset condition based on time elapsed since the last pixel was received
-            if len(self.pixels) > 1 and (time.time() - self.latest_pixel_receipt_epoch) > self.pixel_receipt_timeout_seconds:
-                logging.info("Pixel receipt timeout. Resetting.")
-                self.reset()
+        async for msg in ws:
+            if msg.type == web.WSMsgType.TEXT:
+                message = msg.data
 
-            if self.image_ready and not self.is_start_of_new_image(message):
-                continue  # Ignore messages if an image has been formed and it's not a start of a new image
+                if self.print_received_messages:
+                    logging.info(message)
 
-            if self.is_start_of_new_image(message):
-                self.reset()  # Reset for new image when a new image is indicated by a start message
+                # Reset condition based on time elapsed since the last pixel was received
+                if len(self.pixels) > 1 and (time.time() - self.latest_pixel_receipt_epoch) > self.pixel_receipt_timeout_seconds:
+                    logging.info("Pixel receipt timeout. Resetting.")
+                    self.reset()
 
-            if self.width == 0 or self.height == 0:
-                logging.info(f"Received message when width or height is 0: {message}")
-                if self.is_combined_dimensions(message):
-                    dimensions = self.parse_combined_dimensions(message)
-                    self.width, self.height = dimensions
-                    logging.info(f"Received combined dimensions. Width: {self.width}, Height: {self.height}")
-                    logging.info(f"Now expecting {self.width * self.height} pixels")
-                elif self.width == 0:
-                    self.width = int(message)
-                elif self.height == 0:
-                    self.height = int(message)
-                    logging.info(f"Now expecting {self.width * self.height} pixels")
-            elif len(message) != 7 and len(message) != 4:
-                # Client sent a row of pixels
-                self.latest_pixel_receipt_epoch = time.time()
-                row_pixels = []
+                if self.image_ready and not self.is_start_of_new_image(message):
+                    continue  # Ignore messages if an image has been formed and it's not a start of a new image
 
-                i = 0
-                while i < len(message):
-                    if self.expect_short_hex:
-                        row_pixels.append(message[i:i+5])
-                        i += 4
-                    else:
-                        row_pixels.append(message[i:i+8])
-                        i += 7
+                if self.is_start_of_new_image(message):
+                    self.reset()  # Reset for new image when a new image is indicated by a start message
 
-                self.pixels.extend(row_pixels)
-                self.rows_received += 1
-                logging.info(f"Received row of {len(row_pixels)} pixels. "
-                             f"Total received pixels: {len(self.pixels)} Total rows received: {self.rows_received}")
-                if len(self.pixels) == self.width * self.height:
-                    self.save_image()
-                    self.image_ready = True
-            else:
-                # Client sent a single pixel
-                self.latest_pixel_receipt_epoch = time.time()
-                self.pixels.append(message)
-                if len(self.pixels) == self.width * self.height:
-                    self.save_image()
-                    self.image_ready = True
+                if self.width == 0 or self.height == 0:
+                    logging.info(f"Received message when width or height is 0: {message}")
+                    if self.is_combined_dimensions(message):
+                        dimensions = self.parse_combined_dimensions(message)
+                        self.width, self.height = dimensions
+                        logging.info(f"Received combined dimensions. Width: {self.width}, Height: {self.height}")
+                        logging.info(f"Now expecting {self.width * self.height} pixels")
+                    elif self.width == 0:
+                        self.width = int(message)
+                    elif self.height == 0:
+                        self.height = int(message)
+                        logging.info(f"Now expecting {self.width * self.height} pixels")
+                elif len(message) != 7 and len(message) != 4:
+                    # Client sent a row of pixels
+                    self.latest_pixel_receipt_epoch = time.time()
+                    row_pixels = []
+
+                    i = 0
+                    while i < len(message):
+                        if self.expect_short_hex:
+                            row_pixels.append(message[i:i+5])
+                            i += 4
+                        else:
+                            row_pixels.append(message[i:i+8])
+                            i += 7
+
+                    self.pixels.extend(row_pixels)
+                    self.rows_received += 1
+                    logging.info(f"Received row of {len(row_pixels)} pixels. "
+                                 f"Total received pixels: {len(self.pixels)} Total rows received: {self.rows_received}")
+                    if len(self.pixels) == self.width * self.height:
+                        self.save_image()
+                        self.image_ready = True
+                else:
+                    # Client sent a single pixel
+                    self.latest_pixel_receipt_epoch = time.time()
+                    self.pixels.append(message)
+                    if len(self.pixels) == self.width * self.height:
+                        self.save_image()
+                        self.image_ready = True
 
     def save_image(self):
         image = Image.new("RGB", (self.width, self.height))
@@ -146,5 +154,24 @@ class WebSocketImageServer:
         return message.isdigit() or (message.startswith('[') and ';' in message)
 
     async def start_server(self):
-        server = await websockets.serve(self.handler, host=self.host, port=self.port)
-        await server.wait_closed()
+        app = web.Application()
+        app.router.add_route('GET', '/ws', self.websocket_handler)
+
+        # Updated to serve images from a specific path and potentially allow directory listing
+        static_route_path = '/images'  # Change the URL path to /images
+        app.router.add_static(static_route_path, self.image_store_path,
+                              show_index=True)  # show_index allows directory listing
+
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, self.host, self.port)
+        await site.start()
+
+        logging.info(f"Server running on {self.host}:{self.port}")
+        await asyncio.Event().wait()  # This will keep the server running indefinitely
+
+
+    @staticmethod
+    async def main(config_file_path: str, image_store_path: str):
+        server = WebSocketImageServer(config_file_path, image_store_path)
+        await server.start_server()
