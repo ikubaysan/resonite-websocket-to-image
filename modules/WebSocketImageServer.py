@@ -28,7 +28,7 @@ class WebSocketImageServer:
         self.width = 0
         self.height = 0
         self.latest_pixel_receipt_epoch = 0
-        self.rows_received = 0
+        self.chunks_received = 0
         self.pixels = []
         self.image_ready = False
 
@@ -114,9 +114,9 @@ class WebSocketImageServer:
                     row_pixels = self.parse_hex_colors(message)
 
                     self.pixels.extend(row_pixels)
-                    self.rows_received += 1
-                    logging.info(f"Received row of {len(row_pixels)} pixels. "
-                                 f"Total received pixels: {len(self.pixels)} Total rows received: {self.rows_received}")
+                    self.chunks_received += 1
+                    logging.info(f"Received chunk of {len(row_pixels)} pixels. "
+                                 f"Total received pixels: {len(self.pixels)} Total chunks received: {self.chunks_received}")
                     if len(self.pixels) == self.width * self.height:
                         save_image_path = self.save_image()
                         filename = os.path.basename(save_image_path)
@@ -149,7 +149,7 @@ class WebSocketImageServer:
         logging.info("Resetting server state for new image.")
         self.width = 0
         self.height = 0
-        self.rows_received = 0
+        self.chunks_received = 0
         self.pixels = []
         self.image_ready = False
 
