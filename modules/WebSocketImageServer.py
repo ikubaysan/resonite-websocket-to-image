@@ -9,6 +9,7 @@ import time
 import configparser
 import logging
 import time
+from typing import List
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 # Only log warnings and errors from aiohttp
@@ -35,7 +36,6 @@ class WebSocketImageServer:
         config = configparser.ConfigParser()
         config.read(self.config_file_path)
         self.port: int = int(config['server']['port'])
-        self.expect_short_hex: bool = config['server'].getboolean('expect_short_hex')
         self.host: str = config['server']['host']
         self.domain: str = config['server']['domain']
         self.print_received_messages: bool = config['server'].getboolean('print_received_messages')
@@ -43,10 +43,35 @@ class WebSocketImageServer:
         logging.info(f"Config loaded from {self.config_file_path}. Port: {self.port}, "
                      f"Host: {self.host}, "
                      f"Domain: {self.domain}, "
-                     f"Expect short hex: {self.expect_short_hex}, "
                      f"Print received messages: {self.print_received_messages}, "
                      f"Pixel receipt timeout seconds: {self.pixel_receipt_timeout_seconds}")
 
+    @staticmethod
+    def parse_hex_colors(input_string) -> List[str]:
+        # Initialize an empty list to store color codes
+        colors = []
+
+        # Temporary string to accumulate characters of a color code
+        current_color = ""
+
+        # Iterate over each character in the string
+        for char in input_string:
+            # If the character is '#', it indicates the start of a new color code
+            if char == '#':
+                # If there is already a color code being built, add it to the list
+                if current_color:
+                    colors.append(current_color)
+                # Start a new color code
+                current_color = "#"
+            else:
+                # Continue building the current color code
+                current_color += char
+
+        # Add the last color code to the list, if any
+        if current_color:
+            colors.append(current_color)
+
+        return colors
 
 
     async def websocket_handler(self, request):
@@ -86,18 +111,7 @@ class WebSocketImageServer:
                 elif len(message) != 7 and len(message) != 4:
                     # Client sent a row of pixels
                     self.latest_pixel_receipt_epoch = time.time()
-                    row_pixels = []
-
-                    i = 0
-                    while i < len(message):
-                        if self.expect_short_hex:
-                            row_pixels.append(message[i:i+4])
-                            i += 4
-                            pass
-                        else:
-                            row_pixels.append(message[i:i+7])
-                            i += 7
-                            pass
+                    row_pixels = self.parse_hex_colors(message)
 
                     self.pixels.extend(row_pixels)
                     self.rows_received += 1
