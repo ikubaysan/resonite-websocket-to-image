@@ -91,11 +91,13 @@ class WebSocketImageServer:
                     i = 0
                     while i < len(message):
                         if self.expect_short_hex:
-                            row_pixels.append(message[i:i+5])
+                            row_pixels.append(message[i:i+4])
                             i += 4
+                            pass
                         else:
-                            row_pixels.append(message[i:i+8])
+                            row_pixels.append(message[i:i+7])
                             i += 7
+                            pass
 
                     self.pixels.extend(row_pixels)
                     self.rows_received += 1
