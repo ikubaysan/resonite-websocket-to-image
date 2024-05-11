@@ -1,4 +1,3 @@
-import asyncio
 import websockets
 import random
 from PIL import Image
@@ -27,20 +26,17 @@ class WebSocketImageClient:
                      f"Send pixels by row: {self.send_pixels_by_row}")
 
     async def send_random_image(self):
-        uri = f"ws://{self.host}:{self.port}"
+        uri = f"ws://{self.host}:{self.port}/ws"
         websocket_messages_sent = 0
         logging.info(f"Sending random image to {uri}")
         async with websockets.connect(uri) as websocket:
             await self.send_image_size(websocket, 100, 100, combine=True)
             if self.send_pixels_by_row:
-                for y in range(100):
-                    row_colors = []
-                    for _ in range(100):
-                        row_colors.append(self.generate_random_color())
-                    logging.info(f"Sending {len(row_colors)} row colors")
-                    row_colors_str = ''.join(row_colors)
-                    await websocket.send(row_colors_str)
-                    websocket_messages_sent += 1
+                pixels = []
+                for _ in range(100 * 100):
+                    pixels.append(self.generate_random_color())
+                websocket_messages_sent = await self.send_multiple_rows(websocket, pixels, 100, 100, rows_per_message=2)
+
             else:
                 for _ in range(100 * 100):
                     color = self.generate_random_color()
@@ -62,14 +58,42 @@ class WebSocketImageClient:
             await websocket.send(str(height))
             logging.info(f"Sent height: {height}")
 
-    def generate_random_color(self) -> str:
-        if self.send_short_hex:
-            return f"#{random.randint(0, 15):X}{random.randint(0, 15):X}{random.randint(0, 15):X}"
-        else:
-            return f"#{random.randint(0, 255):02X}{random.randint(0, 255):02X}{random.randint(0, 255):02X}"
+    def generate_random_color(self) -> tuple:
+        """Return a color like the same format of image.getdata()"""
+        return (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
 
-    def get_combined_width_height_string(self, width: int, height: int) -> str:
+    @staticmethod
+    def get_combined_width_height_string(width: int, height: int) -> str:
         return f"[{width}; {height}]"
+
+    async def send_multiple_rows(self, websocket, pixels, width, height, rows_per_message=2):
+        # Ensure rows_per_message is at least 1 and not greater than the image height
+        rows_per_message = max(1, min(rows_per_message, height))
+        websocket_messages_sent = 0
+
+        # Iterate over each row in steps of rows_per_message
+        for y in range(0, height, rows_per_message):
+            combined_row_colors = ''
+
+            # Process up to rows_per_message rows or whatever remains
+            for delta in range(rows_per_message):
+                current_row = y + delta
+                if current_row >= height:  # Check if we've exceeded the image height
+                    break
+
+                row_start = current_row * width
+                row_end = row_start + width
+                row_colors = ''.join([self.rgb_to_hex(rgb) for rgb in pixels[row_start:row_end]])
+
+                # Combine rows into a single string
+                combined_row_colors += row_colors
+
+            # Log and send the combined row colors
+            logging.info(f"Sending combined row colors: {combined_row_colors}")
+            await websocket.send(combined_row_colors)
+            websocket_messages_sent += 1
+
+        return websocket_messages_sent
 
     async def send_image_from_file(self, image_path: str):
         image_path = os.path.abspath(image_path)
@@ -90,13 +114,8 @@ class WebSocketImageClient:
             pixels = list(image.getdata())
 
             if self.send_pixels_by_row:
-                for y in range(height):
-                    row_start = y * width
-                    row_end = row_start + width
-                    row_colors = ''.join([self.rgb_to_hex(rgb) for rgb in pixels[row_start:row_end]])
-                    logging.info(f"Sending row colors: {row_colors}")
-                    await websocket.send(row_colors)
-                    websocket_messages_sent += 1
+                websocket_messages_sent = await self.send_multiple_rows(websocket, pixels, width, height,
+                                                                        rows_per_message=2)
             else:
                 for pixel in pixels:
                     color = self.rgb_to_hex(pixel)
