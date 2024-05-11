@@ -41,11 +41,14 @@ class WebSocketImageServer:
         self.domain: str = config['server']['domain']
         self.print_received_messages: bool = config['server'].getboolean('print_received_messages')
         self.pixel_receipt_timeout_seconds: int = int(config['server']['pixel_receipt_timeout_seconds'])
+        self.max_images_per_room: int = int(config['server']['max_images_per_room'])
+
         logging.info(f"Config loaded from {self.config_file_path}. Port: {self.port}, "
                      f"Host: {self.host}, "
                      f"Domain: {self.domain}, "
                      f"Print received messages: {self.print_received_messages}, "
-                     f"Pixel receipt timeout seconds: {self.pixel_receipt_timeout_seconds}")
+                     f"Pixel receipt timeout seconds: {self.pixel_receipt_timeout_seconds}, "
+                     f"Max images per room: {self.max_images_per_room}")
 
     @staticmethod
     def parse_hex_colors(input_string) -> List[str]:
@@ -76,7 +79,7 @@ class WebSocketImageServer:
 
     def get_latest_images(self, room_id: int) -> str:
         """
-        Returns a comma-separated string of URLs for the latest 10 images for a given room.
+        Returns a comma-separated string of URLs for the latest <max_images_per_room> images for a given room.
         If the room folder does not exist or contains no images, returns an empty string.
         """
         room_folder_path = os.path.join(self.image_store_path, f"room_{room_id}")
@@ -94,15 +97,16 @@ class WebSocketImageServer:
                 logging.info(f"No images found in the folder for room {room_id}.")
                 return ""
 
-            # If there are more than 10 files, delete the oldest ones, and then update the files list
+            # If there are more than <self.max_images_per_room> files, delete the oldest ones, and then update the files list
             deletions = 0
-            if len(files) > 10:
-                for file in files[10:]:
+            if len(files) > self.max_images_per_room:
+                logging.info(f"More than {self.max_images_per_room} images found for room {room_id}. Deleting the oldest images.")
+                for file in files[self.max_images_per_room:]:
                     os.remove(os.path.join(room_folder_path, file))
                     deletions += 1
-                files = files[:10]
+                files = files[:self.max_images_per_room]
                 logging.info(f"Deleted {deletions} oldest images for room {room_id}. "
-                             f"There are now 10 images in the folder.")
+                             f"There are now {self.max_images_per_room} images in the folder.")
 
             urls = [f"http://{self.domain}:{self.port}/images/room_{room_id}/{file}" for file in files if file.endswith('.png')]
             #urls_string = ', '.join(urls)
