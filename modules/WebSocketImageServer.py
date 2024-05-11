@@ -11,6 +11,8 @@ import logging
 import time
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Only log warnings and errors from aiohttp
+logging.getLogger('aiohttp').setLevel(logging.WARNING)
 
 class WebSocketImageServer:
     def __init__(self, config_file_path: str, image_store_path: str):
@@ -100,15 +102,17 @@ class WebSocketImageServer:
                     logging.info(f"Received row of {len(row_pixels)} pixels. "
                                  f"Total received pixels: {len(self.pixels)} Total rows received: {self.rows_received}")
                     if len(self.pixels) == self.width * self.height:
-                        self.save_image()
-                        self.image_ready = True
+                        save_image_path = self.save_image()
+                        filename = os.path.basename(save_image_path)
+                        await ws.send_str(f"http://{self.domain}:{self.port}/images/{filename}")
                 else:
                     # Client sent a single pixel
                     self.latest_pixel_receipt_epoch = time.time()
                     self.pixels.append(message)
                     if len(self.pixels) == self.width * self.height:
-                        self.save_image()
-                        self.image_ready = True
+                        save_image_path = self.save_image()
+                        filename = os.path.basename(save_image_path)
+                        await ws.send_str(f"http://{self.domain}:{self.port}/images/{filename}")
 
     def save_image(self):
         image = Image.new("RGB", (self.width, self.height))
@@ -122,6 +126,8 @@ class WebSocketImageServer:
 
         image.save(save_image_path)
         logging.info(f"Image saved to {save_image_path} with {len(pixel_data)} pixels.")
+        self.image_ready = True
+        return save_image_path
 
     def reset(self):
         logging.info("Resetting server state for new image.")

@@ -48,6 +48,8 @@ class WebSocketImageClient:
                     await websocket.send(color)
                     websocket_messages_sent += 1
         logging.info(f"Sent {websocket_messages_sent} messages")
+        response = await websocket.recv()
+        logging.info(f"Received from server: {response}")
 
     async def send_image_size(self, websocket, width: int, height: int, combine: bool):
         if combine:
@@ -102,6 +104,8 @@ class WebSocketImageClient:
                     await websocket.send(color)
                     websocket_messages_sent += 1
         logging.info(f"Sent {websocket_messages_sent} messages")
+        response = await websocket.recv()
+        logging.info(f"Received from server: {response}")
 
     def rgb_to_hex(self, rgb: tuple) -> str:
         if self.send_short_hex:
