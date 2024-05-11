@@ -6,6 +6,7 @@ from PIL import Image
 import time
 import configparser
 import logging
+import time
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -16,6 +17,7 @@ class WebSocketImageServer:
 
         self.width = 0
         self.height = 0
+        self.latest_pixel_receipt_epoch = 0
         self.pixels = []
         self.image_ready = False
 
@@ -26,10 +28,12 @@ class WebSocketImageServer:
         self.expect_short_hex: bool = config['server'].getboolean('expect_short_hex')
         self.host: str = config['server']['host']
         self.print_received_messages: bool = config['server'].getboolean('print_received_messages')
+        self.pixel_receipt_timeout_seconds: int = int(config['server']['pixel_receipt_timeout_seconds'])
         logging.info(f"Config loaded from {self.config_file_path}. Port: {self.port}, "
                      f"Host: {self.host}, "
                      f"Expect short hex: {self.expect_short_hex}, "
-                     f"Print received messages: {self.print_received_messages}")
+                     f"Print received messages: {self.print_received_messages}, "
+                     f"Pixel receipt timeout seconds: {self.pixel_receipt_timeout_seconds}")
 
 
     async def handler(self, websocket, path):
@@ -37,6 +41,11 @@ class WebSocketImageServer:
 
             if self.print_received_messages:
                 logging.info(message)
+
+            # Reset condition based on time elapsed since the last pixel was received
+            if len(self.pixels) > 1 and (time.time() - self.latest_pixel_receipt_epoch) > self.pixel_receipt_timeout_seconds:
+                logging.info("Pixel receipt timeout. Resetting.")
+                self.reset()
 
             if self.image_ready and not self.is_start_of_new_image(message):
                 continue  # Ignore messages if an image has been formed and it's not a start of a new image
@@ -57,6 +66,7 @@ class WebSocketImageServer:
                     self.height = int(message)
                     logging.info(f"Now expecting {self.width * self.height} pixels")
             else:
+                self.latest_pixel_receipt_epoch = time.time()
                 self.pixels.append(message)
                 if len(self.pixels) == self.width * self.height:
                     self.save_image()
