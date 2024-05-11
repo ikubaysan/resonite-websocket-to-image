@@ -11,11 +11,13 @@ class WebSocketImageClient:
     def __init__(self, config_file_path: str):
         self.config_file_path = config_file_path
         self.load_config()
+        self.uri = f"ws://{self.domain}:{self.port}/ws"
 
     def load_config(self):
         config = configparser.ConfigParser()
         config.read(self.config_file_path)
         self.host: str = config['client']['host']
+        self.domain: str = config['client']['domain']
         self.port: int = int(config['client']['port'])
         self.send_short_hex: bool = config['client'].getboolean('send_short_hex')
         self.send_pixels_by_row: bool = config['client'].getboolean('send_pixels_by_row')
@@ -25,11 +27,16 @@ class WebSocketImageClient:
                      f"Send short hex: {self.send_short_hex}, "
                      f"Send pixels by row: {self.send_pixels_by_row}")
 
+    async def get_latest_images(self, room_id: int) -> str:
+        async with websockets.connect(self.uri) as websocket:
+            await websocket.send(f"get_latest_images {room_id}")
+            response = await websocket.recv()
+            return response
+
     async def send_random_image(self):
-        uri = f"ws://{self.host}:{self.port}/ws"
         websocket_messages_sent = 0
-        logging.info(f"Sending random image to {uri}")
-        async with websockets.connect(uri) as websocket:
+        logging.info(f"Sending random image to {self.uri}")
+        async with websockets.connect(self.uri) as websocket:
             await self.send_image_size(websocket, 100, 100, combine=True)
             if self.send_pixels_by_row:
                 pixels = []
@@ -104,12 +111,11 @@ class WebSocketImageClient:
         image = Image.open(image_path).convert("RGB")
         width, height = image.size
         logging.info(f"Image size: {width}x{height} ({width * height} pixels)")
-        uri = f"ws://{self.host}:{self.port}/ws"
 
-        logging.info(f"Sending image from file {image_path} to {uri}")
+        logging.info(f"Sending image from file {image_path} to {self.uri}")
 
         websocket_messages_sent = 0
-        async with websockets.connect(uri) as websocket:
+        async with websockets.connect(self.uri) as websocket:
             await self.send_image_size(websocket, width, height, combine=True)
             pixels = list(image.getdata())
 

@@ -1,11 +1,12 @@
 from modules.WebSocketImageClient import WebSocketImageClient
 import asyncio
 
+async def main():
+    client = WebSocketImageClient(config_file_path="config.ini")
+    # result = await client.send_random_image()
+    # result = await client.send_image_from_file("sample_image.png")
+    result = await client.get_latest_images(room_id=2)
+    print("Latest Images URLs:", result)
 
 if __name__ == "__main__":
-    client = WebSocketImageClient(config_file_path="config.ini")
-    # Use this line to send random colors
-    asyncio.run(client.send_random_image())
-
-    # Use this line to send an image from a file
-    #asyncio.run(client.send_image_from_file("sample_image.png"))
+    asyncio.run(main())

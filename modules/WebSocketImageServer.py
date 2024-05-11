@@ -74,6 +74,35 @@ class WebSocketImageServer:
 
         return colors
 
+    def get_latest_images(self, room_id: int) -> str:
+        """
+        Returns a comma-separated string of URLs for the latest 10 images for a given room.
+        If the room folder does not exist or contains no images, returns an empty string.
+        """
+        room_folder_path = os.path.join(self.image_store_path, f"room_{room_id}")
+        if not os.path.exists(room_folder_path):
+            logging.info(f"No folder found for room {room_id}.")
+            return ""
+
+        # List all png files in the folder
+        try:
+            files = [f for f in os.listdir(room_folder_path) if f.endswith('.png')]
+            files.sort(reverse=True, key=lambda x: os.path.getmtime(os.path.join(room_folder_path, x)))
+
+            if not files:
+                logging.info(f"No images found in the folder for room {room_id}.")
+                return ""
+
+            # Get the latest 10 files
+            latest_files = files[:10]
+            urls = [f"http://{self.domain}:{self.port}/images/room_{room_id}/{file}" for file in latest_files if file.endswith('.png')]
+            #urls_string = ', '.join(urls)
+            urls_string = '|'.join(urls)
+            logging.info(f"Latest images for room {room_id}: {urls_string}")
+            return urls_string
+        except Exception as e:
+            logging.error(f"Error fetching images for room {room_id}: {str(e)}")
+            return ""
 
     async def websocket_handler(self, request):
         ws = web.WebSocketResponse()
@@ -85,6 +114,14 @@ class WebSocketImageServer:
 
                 if self.print_received_messages:
                     logging.info(message)
+
+
+                if message.startswith("get_latest_images"):
+                    # Get the latest images for a room
+                    # Message must be in the format "get_latest_images <room_id>"
+                    latest_images = self.get_latest_images(int(message.split()[-1]))
+                    await ws.send_str(latest_images)
+                    continue
 
                 # Reset condition based on time elapsed since the last pixel was received
                 if len(self.pixels) > 1 and (time.time() - self.latest_pixel_receipt_epoch) > self.pixel_receipt_timeout_seconds:
@@ -196,7 +233,9 @@ class WebSocketImageServer:
         site = web.TCPSite(runner, self.host, self.port)
         await site.start()
 
-        logging.info(f"Server running on {self.host}:{self.port}")
+        logging.info(f"Server running on host: {self.host}:{self.port}")
+        logging.info(f"Websocket server running on ws://{self.domain}:{self.port}/ws")
+        logging.info(f"Images served from http://{self.domain}:{self.port}/images/room_<room_number>/")
         await asyncio.Event().wait()  # This will keep the server running indefinitely
 
 
