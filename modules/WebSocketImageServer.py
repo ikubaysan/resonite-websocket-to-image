@@ -87,15 +87,24 @@ class WebSocketImageServer:
         # List all png files in the folder
         try:
             files = [f for f in os.listdir(room_folder_path) if f.endswith('.png')]
+            # Sort files by modification time in descending order ([0] will be the newest file)
             files.sort(reverse=True, key=lambda x: os.path.getmtime(os.path.join(room_folder_path, x)))
 
             if not files:
                 logging.info(f"No images found in the folder for room {room_id}.")
                 return ""
 
-            # Get the latest 10 files
-            latest_files = files[:10]
-            urls = [f"http://{self.domain}:{self.port}/images/room_{room_id}/{file}" for file in latest_files if file.endswith('.png')]
+            # If there are more than 10 files, delete the oldest ones, and then update the files list
+            deletions = 0
+            if len(files) > 10:
+                for file in files[10:]:
+                    os.remove(os.path.join(room_folder_path, file))
+                    deletions += 1
+                files = files[:10]
+                logging.info(f"Deleted {deletions} oldest images for room {room_id}. "
+                             f"There are now 10 images in the folder.")
+
+            urls = [f"http://{self.domain}:{self.port}/images/room_{room_id}/{file}" for file in files if file.endswith('.png')]
             #urls_string = ', '.join(urls)
             urls_string = '|'.join(urls)
             logging.info(f"Latest images for room {room_id}: {urls_string}")
