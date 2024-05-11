@@ -33,10 +33,12 @@ class WebSocketImageServer:
         self.port: int = int(config['server']['port'])
         self.expect_short_hex: bool = config['server'].getboolean('expect_short_hex')
         self.host: str = config['server']['host']
+        self.domain: str = config['server']['domain']
         self.print_received_messages: bool = config['server'].getboolean('print_received_messages')
         self.pixel_receipt_timeout_seconds: int = int(config['server']['pixel_receipt_timeout_seconds'])
         logging.info(f"Config loaded from {self.config_file_path}. Port: {self.port}, "
                      f"Host: {self.host}, "
+                     f"Domain: {self.domain}, "
                      f"Expect short hex: {self.expect_short_hex}, "
                      f"Print received messages: {self.print_received_messages}, "
                      f"Pixel receipt timeout seconds: {self.pixel_receipt_timeout_seconds}")
