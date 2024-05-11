@@ -158,8 +158,10 @@ class WebSocketImageServer:
 
     @staticmethod
     def is_start_of_new_image(message: str) -> bool:
-        # Consider it a start of a new image if it's a number or combined dimensions
-        return message.isdigit() or (message.startswith('[') and ';' in message)
+        # Consider this message a start of a new image if:
+        # 1. A '#' is not in the message
+        # 2. It's a number or combined dimensions (meaning it contains '[' and ';')
+        return '#' not in message and (message.isnumeric() or (message.startswith('[') and ';' in message))
 
     async def start_server(self):
         app = web.Application()
