@@ -39,6 +39,8 @@ class RestImageClient:
         pixels = [self.generate_random_color() for _ in range(width * height)]
         pixel_data = ''.join([self.rgb_to_hex(rgb) for rgb in pixels])
 
+        logging.info(f"Sending image to {self.uri}")
+
         response = requests.post(self.uri, json={
             'pixel_data': pixel_data
         }, params={'width': width, 'height': height, 'room': 1})
@@ -62,6 +64,8 @@ class RestImageClient:
 
         pixels = list(image.getdata())
         pixel_data = ''.join([self.rgb_to_hex(rgb) for rgb in pixels])
+
+        logging.info(f"Sending image to {self.uri}")
 
         response = requests.post(self.uri, json={
             'pixel_data': pixel_data

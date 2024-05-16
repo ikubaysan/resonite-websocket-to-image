@@ -8,7 +8,6 @@ from typing import List, Tuple
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-
 class FlaskImageServer:
     def __init__(self, config_file_path: str, image_store_path: str):
         self.config_file_path = os.path.abspath(config_file_path)
@@ -19,16 +18,8 @@ class FlaskImageServer:
 
         self.load_config()
 
-        self.width = 0
-        self.height = 0
-        self.room_number = 1
-        self.latest_pixel_receipt_epoch = 0
-        self.pixel_receipt_start_epoch = 0
-        self.chunks_received = 0
-        self.pixels = []
-        self.image_ready = False
-
         self.app = Flask(__name__)
+        # Endpoint will look like: http://localhost:5000/upload_image?width=100&height=100&room=1
         self.app.add_url_rule('/upload_image', 'upload_image', self.upload_image, methods=['POST'])
         self.app.add_url_rule('/images/<path:filename>', 'serve_image', self.serve_image)
 
@@ -66,28 +57,34 @@ class FlaskImageServer:
 
         return colors
 
-    def save_image(self) -> str:
-        image = Image.new("RGB", (self.width, self.height))
-        pixel_data = [self.hex_to_rgb(hex_color) for hex_color in self.pixels]
+    def save_image(self, pixels: List[str], width: int, height: int, room_number: int) -> str:
+        image = Image.new("RGB", (width, height))
+        pixel_data = [self.hex_to_rgb(hex_color) for hex_color in pixels]
         image.putdata(pixel_data)
         filename = f"{int(time.time())}.png"
 
-        save_image_path = os.path.abspath(os.path.join(self.image_store_path, f"room_{self.room_number}", filename))
+        save_image_path = os.path.abspath(os.path.join(self.image_store_path, f"room_{room_number}", filename))
         os.makedirs(os.path.dirname(save_image_path), exist_ok=True)
         logging.info(f"Saving image to {save_image_path}")
         image.save(save_image_path)
-        logging.info(f"Image saved to {save_image_path} with {len(pixel_data)} pixels.")
-        self.image_ready = True
+        logging.info(f"{width}x{height} image with {len(pixel_data)} pixels saved to {save_image_path}")
+
+        self.cleanup_old_images(room_number)
         return save_image_path
 
-    def reset(self):
-        logging.info("Resetting server state for new image.")
-        self.width = 0
-        self.height = 0
-        self.chunks_received = 0
-        self.room_number = 1
-        self.pixels = []
-        self.image_ready = False
+    def cleanup_old_images(self, room_number: int):
+        room_folder_path = os.path.join(self.image_store_path, f"room_{room_number}")
+        if not os.path.exists(room_folder_path):
+            return
+
+        files = [f for f in os.listdir(room_folder_path) if f.endswith('.png')]
+        files.sort(key=lambda x: os.path.getmtime(os.path.join(room_folder_path, x)))
+
+        if len(files) > self.max_images_per_room:
+            files_to_delete = files[:-self.max_images_per_room]
+            for file in files_to_delete:
+                os.remove(os.path.join(room_folder_path, file))
+                logging.info(f"Deleted old image: {file}")
 
     def hex_to_rgb(self, hex_str: str) -> Tuple[int, int, int]:
         if len(hex_str) == 4:
@@ -98,15 +95,15 @@ class FlaskImageServer:
     def upload_image(self):
         data = request.get_json()
         pixel_data = data.get('pixel_data')
-        self.width = int(request.args.get('width'))
-        self.height = int(request.args.get('height'))
-        self.room_number = int(request.args.get('room', 1))
+        width = int(request.args.get('width'))
+        height = int(request.args.get('height'))
+        room_number = int(request.args.get('room', 1))
 
-        self.pixels = self.parse_hex_colors(pixel_data)
-        if len(self.pixels) == self.width * self.height:
-            save_image_path = self.save_image()
+        pixels = self.parse_hex_colors(pixel_data)
+        if len(pixels) == width * height:
+            save_image_path = self.save_image(pixels, width, height, room_number)
             filename = os.path.basename(save_image_path)
-            image_url = f"http://{self.domain}:{self.port}/images/room_{self.room_number}/{filename}"
+            image_url = f"http://{self.domain}:{self.port}/images/room_{room_number}/{filename}"
             response = {'image_url': image_url}
             logging.info(f"Image uploaded successfully: {image_url}")
             return jsonify(response), 200
