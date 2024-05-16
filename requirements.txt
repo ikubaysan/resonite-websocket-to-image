@@ -1,3 +1,5 @@
 websockets
 pillow
 aiohttp
+flask
+requests
