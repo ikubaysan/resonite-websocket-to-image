@@ -29,6 +29,7 @@ class WebSocketImageServer:
         self.height = 0
         self.room_number = 1
         self.latest_pixel_receipt_epoch = 0
+        self.pixel_receipt_start_epoch = 0
         self.chunks_received = 0
         self.pixels = []
         self.image_ready = False
@@ -134,6 +135,7 @@ class WebSocketImageServer:
                     # Message must be in the format "get_latest_images <room_id>"
                     latest_images = self.get_latest_images(int(message.split()[-1]))
                     await ws.send_str(latest_images)
+                    logging.info(f"Sent latest images to client: {latest_images}")
                     continue
 
                 # Reset condition based on time elapsed since the last pixel was received
@@ -154,11 +156,13 @@ class WebSocketImageServer:
                         self.width, self.height = dimensions
                         logging.info(f"Received combined dimensions. Width: {self.width}, Height: {self.height}")
                         logging.info(f"Now expecting {self.width * self.height} pixels")
+                        self.pixel_receipt_start_epoch = time.time()
                     elif self.width == 0:
                         self.width = int(message)
                     elif self.height == 0:
                         self.height = int(message)
                         logging.info(f"Now expecting {self.width * self.height} pixels")
+                        self.pixel_receipt_start_epoch = time.time()
                 elif message in ['1', '2', '3,', '4']:
                     self.room_number = int(message)
                     logging.info(f"This image will be uploaded for room number {self.room_number}")
@@ -174,7 +178,11 @@ class WebSocketImageServer:
                     if len(self.pixels) == self.width * self.height:
                         save_image_path = self.save_image()
                         filename = os.path.basename(save_image_path)
-                        await ws.send_str(f"http://{self.domain}:{self.port}/images/room_{self.room_number}/{filename}")
+                        message_to_send = f"http://{self.domain}:{self.port}/images/room_{self.room_number}/{filename}"
+                        await ws.send_str(message_to_send)
+                        logging.info(f"Sent message to client: {message_to_send}")
+                        runtime_seconds = round(time.time() - self.pixel_receipt_start_epoch, 2)
+                        logging.info(f"Total runtime for image creation: {runtime_seconds} seconds")
                 else:
                     # Client sent a single pixel
                     self.latest_pixel_receipt_epoch = time.time()
@@ -182,7 +190,11 @@ class WebSocketImageServer:
                     if len(self.pixels) == self.width * self.height:
                         save_image_path = self.save_image()
                         filename = os.path.basename(save_image_path)
-                        await ws.send_str(f"http://{self.domain}:{self.port}/images/room_{self.room_number}/{filename}")
+                        message_to_send = f"http://{self.domain}:{self.port}/images/room_{self.room_number}/{filename}"
+                        await ws.send_str(message_to_send)
+                        logging.info(f"Sent message to client: {message_to_send}")
+                        runtime_seconds = round(time.time() - self.pixel_receipt_start_epoch, 2)
+                        logging.info(f"Total runtime for image creation: {runtime_seconds} seconds")
 
     def save_image(self):
         image = Image.new("RGB", (self.width, self.height))

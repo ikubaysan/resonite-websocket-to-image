@@ -42,7 +42,7 @@ class WebSocketImageClient:
                 pixels = []
                 for _ in range(100 * 100):
                     pixels.append(self.generate_random_color())
-                websocket_messages_sent = await self.send_multiple_rows(websocket, pixels, 100, 100, rows_per_message=2)
+                websocket_messages_sent = await self.send_multiple_rows(websocket, pixels, 100, 100, rows_per_message=100)
 
             else:
                 for _ in range(100 * 100):
@@ -73,7 +73,7 @@ class WebSocketImageClient:
     def get_combined_width_height_string(width: int, height: int) -> str:
         return f"[{width}; {height}]"
 
-    async def send_multiple_rows(self, websocket, pixels, width, height, rows_per_message=2):
+    async def send_multiple_rows(self, websocket, pixels, width, height, rows_per_message: int):
         # Ensure rows_per_message is at least 1 and not greater than the image height
         rows_per_message = max(1, min(rows_per_message, height))
         websocket_messages_sent = 0
@@ -121,7 +121,7 @@ class WebSocketImageClient:
 
             if self.send_pixels_by_row:
                 websocket_messages_sent = await self.send_multiple_rows(websocket, pixels, width, height,
-                                                                        rows_per_message=2)
+                                                                        rows_per_message=500)
             else:
                 for pixel in pixels:
                     color = self.rgb_to_hex(pixel)

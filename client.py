@@ -3,9 +3,9 @@ import asyncio
 
 async def main():
     client = WebSocketImageClient(config_file_path="config.ini")
-    # result = await client.send_random_image()
-    # result = await client.send_image_from_file("sample_image.png")
-    result = await client.get_latest_images(room_id=1)
+    #result = await client.send_random_image()
+    result = await client.send_image_from_file("sample_image.png")
+    #result = await client.get_latest_images(room_id=1)
     print("Latest Images URLs:", result)
 
 if __name__ == "__main__":
