@@ -46,14 +46,19 @@ class FlaskImageServer:
 
         for char in input_string:
             if char == '#':
+                # If we have a current color, add it to the list
                 if current_color:
                     colors.append(current_color)
+                # Start a new color
                 current_color = "#"
             else:
+                # Add the character to the current color
                 current_color += char
 
         if current_color:
             colors.append(current_color)
+
+        erroneous_colors = [color for color in colors if len(color) not in [4, 7]]
 
         return colors
 
@@ -92,6 +97,9 @@ class FlaskImageServer:
                 return tuple(int(hex_str[i] * 2, 16) for i in range(1, 4))
             elif len(hex_str) == 5:  # #RGBA format, ignore the alpha
                 # TODO: This hits and it's basically bugged. Makes the picture much darker than it should be.
+                # Got confirmation shortform on Resonite is bugged:
+                # https://wiki.resonite.com/ProtoFlux:Color_To_Hex_Code#cite_note-1
+                # "This is currently bugged and produces incorrect results"
                 return tuple(int(hex_str[i] * 2, 16) for i in range(1, 4))
             else:
                 # Full #RRGGBB format
