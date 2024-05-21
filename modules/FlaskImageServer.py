@@ -87,28 +87,35 @@ class FlaskImageServer:
                 logging.info(f"Deleted old image: {file}")
 
     def hex_to_rgb(self, hex_str: str) -> Tuple[int, int, int]:
-        if len(hex_str) == 4:
-            return tuple(int(hex_str[i] * 2, 16) for i in range(1, 4))
-        else:
-            return tuple(int(hex_str[i:i + 2], 16) for i in range(1, 7, 2))
+        try:
+            if len(hex_str) == 4:  # #RGB format
+                return tuple(int(hex_str[i] * 2, 16) for i in range(1, 4))
+            elif len(hex_str) == 5:  # #RGBA format, ignore the alpha
+                # TODO: This hits and it's basically bugged. Makes the picture much darker than it should be.
+                return tuple(int(hex_str[i] * 2, 16) for i in range(1, 4))
+            else:
+                # Full #RRGGBB format
+                return tuple(int(hex_str[i:i + 2], 16) for i in range(1, 7, 2))
+        except Exception as e:
+            logging.error(f"Error converting hex string {hex_str} to RGB: {e}")
+            return 0, 0, 0
 
     def upload_image(self):
-        data = request.get_json()
-        pixel_data = data.get('pixel_data')
+        pixel_data = request.get_data(as_text=True)
         width = int(request.args.get('width'))
         height = int(request.args.get('height'))
-        room_number = int(request.args.get('room', 1))
+        room_number = int(request.args.get('room', 0))
 
         pixels = self.parse_hex_colors(pixel_data)
         if len(pixels) == width * height:
             save_image_path = self.save_image(pixels, width, height, room_number)
             filename = os.path.basename(save_image_path)
             image_url = f"http://{self.domain}:{self.port}/images/room_{room_number}/{filename}"
-            response = {'image_url': image_url}
             logging.info(f"Image uploaded successfully: {image_url}")
-            return jsonify(response), 200
+            return image_url, 200
 
-        return jsonify({'error': 'Pixel data does not match the given dimensions'}), 400
+        return jsonify({'error': f'Pixel data does not match the given dimensions of {width}x{height}. Received {len(pixels)} pixels, '
+                                    f'expected {width * height}'}), 400
 
     def serve_image(self, filename):
         return send_from_directory(self.image_store_path, filename)
