@@ -22,6 +22,24 @@ class FlaskImageServer:
         # Endpoint will look like: http://localhost:5000/upload_image?width=100&height=100&room=1
         self.app.add_url_rule('/upload_image', 'upload_image', self.upload_image, methods=['POST'])
         self.app.add_url_rule('/images/<path:filename>', 'serve_image', self.serve_image)
+        self.app.add_url_rule('/latest_images/<int:room_id>', 'get_latest_images', self.get_latest_images)
+
+
+    def get_latest_images(self, room_id: int):
+        # Endpoint looks like: http://localhost:5000/latest_images/1?num_images=10
+        room_folder_path = os.path.join(self.image_store_path, f"room_{room_id}")
+        if not os.path.exists(room_folder_path):
+            return jsonify({'error': f'Room {room_id} does not exist'}), 404
+
+        num_images = int(request.args.get('num_images', 10))
+        files = [f for f in os.listdir(room_folder_path) if f.endswith('.png')]
+        files.sort(key=lambda x: os.path.getmtime(os.path.join(room_folder_path, x)), reverse=True)
+
+        latest_images = [f"http://{self.domain}:{self.port}/images/room_{room_id}/{file}" for file in files[:num_images]]
+
+        # Return the latest images separated by '|'
+        return '|'.join(latest_images), 200
+
 
     def load_config(self):
         config = configparser.ConfigParser()
@@ -43,22 +61,31 @@ class FlaskImageServer:
     def parse_hex_colors(self, input_string: str) -> List[str]:
         colors = []
         current_color = ""
+        is_first_char = True
 
         for char in input_string:
             if char == '#':
                 # If we have a current color, add it to the list
-                if current_color:
+                if current_color != "":
                     colors.append(current_color)
                 # Start a new color
                 current_color = "#"
+            elif char == "|":
+                if is_first_char:
+                    # If the first character is a pipe, it means the first color is empty, so we default to black
+                    current_color = "#000000"
+                # This is an optional optimization which can be used from the client-side: simply add the latest color
+                # This is used so the client can send less characters for consecutive colors
+                colors.append(current_color)
             else:
                 # Add the character to the current color
                 current_color += char
 
+            if is_first_char:
+                is_first_char = False
+
         if current_color:
             colors.append(current_color)
-
-        erroneous_colors = [color for color in colors if len(color) not in [4, 7]]
 
         return colors
 
@@ -114,6 +141,9 @@ class FlaskImageServer:
         height = int(request.args.get('height'))
         room_number = int(request.args.get('room', 0))
 
+        logging.info(f"Received image upload request of {len(pixel_data)} characters "
+                     f"for room {room_number} with dimensions {width}x{height} and {len(pixel_data)} pixels")
+
         pixels = self.parse_hex_colors(pixel_data)
         if len(pixels) == width * height:
             save_image_path = self.save_image(pixels, width, height, room_number)
@@ -122,8 +152,10 @@ class FlaskImageServer:
             logging.info(f"Image uploaded successfully: {image_url}")
             return image_url, 200
 
-        return jsonify({'error': f'Pixel data does not match the given dimensions of {width}x{height}. Received {len(pixels)} pixels, '
-                                    f'expected {width * height}'}), 400
+        error_str = f'Pixel data does not match the given dimensions of {width}x{height}. Received {len(pixels)} pixels, ' \
+                    f'expected {width * height}'
+        logging.error(error_str)
+        return jsonify({'error': error_str}, 400)
 
     def serve_image(self, filename):
         return send_from_directory(self.image_store_path, filename)
