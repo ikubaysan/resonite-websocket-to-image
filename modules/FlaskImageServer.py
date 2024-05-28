@@ -38,10 +38,16 @@ class FlaskImageServer:
 
         num_images = int(request.args.get('num_images', 10))
         files = [f for f in os.listdir(room_folder_path) if f.endswith('.png')]
-        files.sort(key=lambda x: os.path.getmtime(os.path.join(room_folder_path, x)), reverse=True)
+
+        # Sort by modification time in ascending order, so [0] is the oldest image
+        files.sort(key=lambda x: os.path.getmtime(os.path.join(room_folder_path, x)), reverse=False)
 
         latest_images = [f"http://{self.domain}:{self.rest_api_port}/images/room_{room_id}/{file}" for file in
                          files[:num_images]]
+
+        # If there are not enough images, prepend empty strings
+        while len(latest_images) < num_images:
+            latest_images.insert(0, "")
 
         # Return the latest images separated by '|'
         return '|'.join(latest_images), 200
