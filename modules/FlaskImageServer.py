@@ -24,7 +24,9 @@ class FlaskImageServer:
         self.app = Flask(__name__)
         # Endpoint will look like: http://localhost:<rest_api_port>/upload_image?width=100&height=100&room=1
         self.app.add_url_rule('/upload_image', 'upload_image', self.upload_image, methods=['POST'])
+        # Endpoint will look like: http://localhost:<rest_api_port>/images/room_1/1627400000.png
         self.app.add_url_rule('/images/<path:filename>', 'serve_image', self.serve_image)
+        # Endpoint will look like: http://localhost:<rest_api_port>/latest_images/1?num_images=10
         self.app.add_url_rule('/latest_images/<int:room_id>', 'get_latest_images', self.get_latest_images)
 
         self.websocket_clients = set()
