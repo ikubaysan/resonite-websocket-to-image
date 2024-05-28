@@ -67,7 +67,7 @@ class RestImageClient:
 
         response = requests.post(self.uri, data=pixel_data, params={'width': width,
                                                                     'height': height,
-                                                                    'room': 1})
+                                                                    'room_id': 1})
 
         if response.status_code == 200:
             logging.info(f"Image successfully uploaded: {response.text}")

@@ -6,7 +6,8 @@ import configparser
 import logging
 import asyncio
 import websockets
-from typing import List, Tuple
+from typing import List, Tuple, Union
+import json
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -22,37 +23,26 @@ class FlaskImageServer:
         self.load_config()
 
         self.app = Flask(__name__)
-        # Endpoint will look like: http://localhost:<rest_api_port>/upload_image?width=100&height=100&room=1
-        self.app.add_url_rule('/upload_image', 'upload_image', self.upload_image, methods=['POST'])
-        # Endpoint will look like: http://localhost:<rest_api_port>/images/room_1/1627400000.png
+        self.app.add_url_rule('/upload_image', 'upload_image', self.upload_image_endpoint, methods=['POST'])
         self.app.add_url_rule('/images/<path:filename>', 'serve_image', self.serve_image)
-        # Endpoint will look like: http://localhost:<rest_api_port>/latest_images/1?num_images=10
-        self.app.add_url_rule('/latest_images/<int:room_id>', 'get_latest_images', self.get_latest_images)
+        self.app.add_url_rule('/latest_images', 'get_latest_images', self.get_latest_images_endpoint)
 
         self.websocket_clients = set()
         self.websocket_server = None
 
-    def get_latest_images(self, room_id: int):
-        # Endpoint looks like: http://localhost:<rest_api_port>/latest_images/1?num_images=10
+    def get_latest_images(self, room_id: int, num_images: int) -> str:
         room_folder_path = os.path.join(self.image_store_path, f"room_{room_id}")
         if not os.path.exists(room_folder_path):
             return jsonify({'error': f'Room {room_id} does not exist'}), 404
 
-        num_images = int(request.args.get('num_images', 10))
         files = [f for f in os.listdir(room_folder_path) if f.endswith('.png')]
-
-        # Sort by modification time in ascending order, so [0] is the oldest image
         files.sort(key=lambda x: os.path.getmtime(os.path.join(room_folder_path, x)), reverse=False)
 
-        latest_images = [f"http://{self.domain}:{self.rest_api_port}/images/room_{room_id}/{file}" for file in
-                         files[:num_images]]
-
-        # If there are not enough images, prepend empty strings
+        latest_images = [f"http://{self.domain}:{self.rest_api_port}/images/room_{room_id}/{file}" for file in files[:num_images]]
         while len(latest_images) < num_images:
             latest_images.insert(0, "")
 
-        # Return the latest images separated by '|'
-        return '|'.join(latest_images), 200
+        return '|'.join(latest_images)
 
     def load_config(self):
         config = configparser.ConfigParser()
@@ -118,6 +108,28 @@ class FlaskImageServer:
 
         return save_image_path
 
+
+    # def save_image(self, pixels: List[str], width: int, height: int, room_number: int) -> str:
+    #     image = Image.new("RGB", (width, height))
+    #     pixel_data = [self.hex_to_rgb(hex_color) for hex_color in pixels]
+    #     image.putdata(pixel_data)
+    #     filename = f"{int(time.time())}.png"
+    #
+    #     save_image_path = os.path.abspath(os.path.join(self.image_store_path, f"room_{room_number}", filename))
+    #     os.makedirs(os.path.dirname(save_image_path), exist_ok=True)
+    #     logging.info(f"Saving image to {save_image_path}")
+    #     image.save(save_image_path)
+    #     logging.info(f"{width}x{height} image with {len(pixel_data)} pixels saved to {save_image_path}")
+    #
+    #     self.cleanup_old_images(room_number)
+    #
+    #     loop = asyncio.new_event_loop()
+    #     asyncio.set_event_loop(loop)
+    #     loop.run_until_complete(self.notify_clients(room_number))
+    #     loop.close()
+    #
+    #     return save_image_path
+
     def cleanup_old_images(self, room_number: int):
         room_folder_path = os.path.join(self.image_store_path, f"room_{room_number}")
         if not os.path.exists(room_folder_path):
@@ -144,40 +156,88 @@ class FlaskImageServer:
             logging.error(f"Error converting hex string {hex_str} to RGB: {e}")
             return 0, 0, 0
 
-    def upload_image(self):
-        pixel_data = request.get_data(as_text=True)
-        width = int(request.args.get('width'))
-        height = int(request.args.get('height'))
-        room_number = int(request.args.get('room', 0))
-
-        logging.info(f"Received image upload request of {len(pixel_data)} characters "
-                     f"for room {room_number} with dimensions {width}x{height} and {len(pixel_data)} pixels")
-
+    def upload_image(self, pixel_data: str, width: int, height: int, room_number: int) -> Union[str, Tuple[dict, int]]:
         pixels = self.parse_hex_colors(pixel_data)
         if len(pixels) == width * height:
             save_image_path = self.save_image(pixels, width, height, room_number)
             filename = os.path.basename(save_image_path)
             image_url = f"http://{self.domain}:{self.rest_api_port}/images/room_{room_number}/{filename}"
             logging.info(f"Image uploaded successfully: {image_url}")
-            return image_url, 200
+            return image_url
 
-        error_str = f'Pixel data does not match the given dimensions of {width}x{height}. Received {len(pixels)} pixels, ' \
-                    f'expected {width * height}'
+        error_str = f'Pixel data does not match the given dimensions of {width}x{height}. Received {len(pixels)} pixels, expected {width * height}'
         logging.error(error_str)
-        return jsonify({'error': error_str}, 400)
+        return {'error': error_str}, 400
+
+    def upload_image_endpoint(self):
+        pixel_data = request.get_data(as_text=True)
+        width = int(request.args.get('width'))
+        height = int(request.args.get('height'))
+        room_number = int(request.args.get('room', 0))
+        response = self.upload_image(pixel_data, width, height, room_number)
+        if isinstance(response, str):
+            return response, 200
+        else:
+            return jsonify(response), 400
 
     def serve_image(self, filename):
         return send_from_directory(self.image_store_path, filename)
+
+    def get_latest_images_endpoint(self):
+        try:
+            num_images = int(request.args.get('num_images', 10))
+            room_id = int(request.args.get('room_id', 0))
+            response = self.get_latest_images(room_id, num_images)
+            return response, 200
+        except Exception as e:
+            logging.error(f"Error getting latest images: {e}")
+            return jsonify({'error': f'Error getting latest images: {e}'}), 400
 
     async def websocket_handler(self, websocket, path):
         self.websocket_clients.add(websocket)
         logging.info(f"New WebSocket connection: {websocket.remote_address}")
         try:
             async for message in websocket:
-                pass
+                await self.handle_websocket_message(websocket, message)
         finally:
             self.websocket_clients.remove(websocket)
             logging.info(f"WebSocket connection closed: {websocket.remote_address}")
+
+    async def handle_websocket_message(self, websocket, message):
+        try:
+            if message.startswith("upload_image"):
+                # Example message: "upload_image?width=100&height=100&room=1, body=#FF0000#00FF00#0000FF"
+                params, body = message.split(", body=", 1)
+                logging.info(f"Received upload_image websocket message from client {websocket.remote_address} with params: {params}")
+                query_params = dict(param.split('=') for param in params.split('?')[1].split('&'))
+                width = int(query_params.get('width'))
+                height = int(query_params.get('height'))
+                room_id = int(query_params.get('room_id', 0))
+                response = self.upload_image(body, width, height, room_id)
+                if isinstance(response, str):
+                    await websocket.send("upload_image_response=" + response)
+                else:
+                    await websocket.send(json.dumps(response))
+            elif message.startswith("latest_images"):
+                # Example message: "latest_images?room_id=1&num_images=10"
+                params = message.split('?')[1]
+                logging.info(f"Received latest_images websocket message from client {websocket.remote_address} with params: {params}")
+                room_id = int(params.split('&')[0].split('=')[1])
+                num_images = int(params.split('&')[1].split('=')[1])
+                response = self.get_latest_images(room_id, num_images)
+                await websocket.send("latest_images_response=" + response)
+        except Exception as e:
+            logging.error(f"Error handling WebSocket message: {e}")
+            try:
+                await websocket.send(f"Error handling WebSocket message: {e}")
+            except Exception as e:
+                logging.error(f"Error sending error message to WebSocket client: {e}")
+
+    # async def notify_clients(self, room_number: int):
+    #     if self.websocket_clients:
+    #         message = str(room_number)
+    #         logging.info(f"Sending WebSocket message: {message}")
+    #         await asyncio.gather(*[client.send(message) for client in self.websocket_clients])
 
     async def notify_clients(self, room_number: int):
         if self.websocket_clients:
@@ -189,7 +249,13 @@ class FlaskImageServer:
         self.app.run(host=self.host, port=self.rest_api_port)
 
     async def start_websocket_server(self):
-        self.websocket_server = await websockets.serve(self.websocket_handler, self.host, self.websocket_port)
+        # Set max_size and read limit for a message to 1MB
+        self.websocket_server = await websockets.serve(self.websocket_handler,
+                                                       self.host,
+                                                       self.websocket_port,
+                                                       max_size=1048576 * 4,
+                                                       read_limit=1048576 * 4,
+                                                       write_limit=1048576 * 4)
         logging.info(f"WebSocket server started at ws://{self.host}:{self.websocket_port}")
         await self.websocket_server.wait_closed()
 
