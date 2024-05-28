@@ -92,7 +92,10 @@ class WebSocketImageServer:
         try:
             files = [f for f in os.listdir(room_folder_path) if f.endswith('.png')]
             # Sort files by modification time in descending order ([0] will be the newest file)
-            files.sort(reverse=True, key=lambda x: os.path.getmtime(os.path.join(room_folder_path, x)))
+            # files.sort(reverse=True, key=lambda x: os.path.getmtime(os.path.join(room_folder_path, x)))
+
+            # Sort files by modification time in ascending order ([0] will be the oldest file)
+            files.sort(reverse=False, key=lambda x: os.path.getmtime(os.path.join(room_folder_path, x)))
 
             if not files:
                 logging.info(f"No images found in the folder for room {room_id}.")
