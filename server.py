@@ -8,4 +8,4 @@ if __name__ == "__main__":
     config_file_path = os.path.abspath("config.ini")
     #asyncio.run(WebSocketImageServer.main(config_file_path, image_store_path))
     server = FlaskImageServer(config_file_path, image_store_path)
-    server.start_server()
+    asyncio.run(server.start_servers())

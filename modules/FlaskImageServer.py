@@ -4,9 +4,12 @@ import os
 import time
 import configparser
 import logging
+import asyncio
+import websockets
 from typing import List, Tuple
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 
 class FlaskImageServer:
     def __init__(self, config_file_path: str, image_store_path: str):
@@ -19,14 +22,16 @@ class FlaskImageServer:
         self.load_config()
 
         self.app = Flask(__name__)
-        # Endpoint will look like: http://localhost:5000/upload_image?width=100&height=100&room=1
+        # Endpoint will look like: http://localhost:<rest_api_port>/upload_image?width=100&height=100&room=1
         self.app.add_url_rule('/upload_image', 'upload_image', self.upload_image, methods=['POST'])
         self.app.add_url_rule('/images/<path:filename>', 'serve_image', self.serve_image)
         self.app.add_url_rule('/latest_images/<int:room_id>', 'get_latest_images', self.get_latest_images)
 
+        self.websocket_clients = set()
+        self.websocket_server = None
 
     def get_latest_images(self, room_id: int):
-        # Endpoint looks like: http://localhost:5000/latest_images/1?num_images=10
+        # Endpoint looks like: http://localhost:<rest_api_port>/latest_images/1?num_images=10
         room_folder_path = os.path.join(self.image_store_path, f"room_{room_id}")
         if not os.path.exists(room_folder_path):
             return jsonify({'error': f'Room {room_id} does not exist'}), 404
@@ -35,24 +40,25 @@ class FlaskImageServer:
         files = [f for f in os.listdir(room_folder_path) if f.endswith('.png')]
         files.sort(key=lambda x: os.path.getmtime(os.path.join(room_folder_path, x)), reverse=True)
 
-        latest_images = [f"http://{self.domain}:{self.port}/images/room_{room_id}/{file}" for file in files[:num_images]]
+        latest_images = [f"http://{self.domain}:{self.rest_api_port}/images/room_{room_id}/{file}" for file in
+                         files[:num_images]]
 
         # Return the latest images separated by '|'
         return '|'.join(latest_images), 200
 
-
     def load_config(self):
         config = configparser.ConfigParser()
         config.read(self.config_file_path)
-        self.port: int = int(config['server']['port'])
+        self.rest_api_port: int = int(config['server']['rest_api_port'])
+        self.websocket_port: int = int(config['server']['websocket_port'])
         self.host: str = config['server']['host']
         self.domain: str = config['server']['domain']
         self.print_received_messages: bool = config['server'].getboolean('print_received_messages')
         self.pixel_receipt_timeout_seconds: int = int(config['server']['pixel_receipt_timeout_seconds'])
         self.max_images_per_room: int = int(config['server']['max_images_per_room'])
 
-        logging.info(f"Config loaded from {self.config_file_path}. Port: {self.port}, "
-                     f"Host: {self.host}, "
+        logging.info(f"Config loaded from {self.config_file_path}. REST API Port: {self.rest_api_port}, "
+                     f"WebSocket Port: {self.websocket_port}, Host: {self.host}, "
                      f"Domain: {self.domain}, "
                      f"Print received messages: {self.print_received_messages}, "
                      f"Pixel receipt timeout seconds: {self.pixel_receipt_timeout_seconds}, "
@@ -65,20 +71,14 @@ class FlaskImageServer:
 
         for char in input_string:
             if char == '#':
-                # If we have a current color, add it to the list
                 if current_color != "":
                     colors.append(current_color)
-                # Start a new color
                 current_color = "#"
             elif char == "|":
                 if is_first_char:
-                    # If the first character is a pipe, it means the first color is empty, so we default to black
                     current_color = "#000000"
-                # This is an optional optimization which can be used from the client-side: simply add the latest color
-                # This is used so the client can send less characters for consecutive colors
                 colors.append(current_color)
             else:
-                # Add the character to the current color
                 current_color += char
 
             if is_first_char:
@@ -102,6 +102,12 @@ class FlaskImageServer:
         logging.info(f"{width}x{height} image with {len(pixel_data)} pixels saved to {save_image_path}")
 
         self.cleanup_old_images(room_number)
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(self.notify_clients(room_number))
+        loop.close()
+
         return save_image_path
 
     def cleanup_old_images(self, room_number: int):
@@ -123,13 +129,8 @@ class FlaskImageServer:
             if len(hex_str) == 4:  # #RGB format
                 return tuple(int(hex_str[i] * 2, 16) for i in range(1, 4))
             elif len(hex_str) == 5:  # #RGBA format, ignore the alpha
-                # TODO: This hits and it's basically bugged. Makes the picture much darker than it should be.
-                # Got confirmation shortform on Resonite is bugged:
-                # https://wiki.resonite.com/ProtoFlux:Color_To_Hex_Code#cite_note-1
-                # "This is currently bugged and produces incorrect results"
                 return tuple(int(hex_str[i] * 2, 16) for i in range(1, 4))
             else:
-                # Full #RRGGBB format
                 return tuple(int(hex_str[i:i + 2], 16) for i in range(1, 7, 2))
         except Exception as e:
             logging.error(f"Error converting hex string {hex_str} to RGB: {e}")
@@ -148,7 +149,7 @@ class FlaskImageServer:
         if len(pixels) == width * height:
             save_image_path = self.save_image(pixels, width, height, room_number)
             filename = os.path.basename(save_image_path)
-            image_url = f"http://{self.domain}:{self.port}/images/room_{room_number}/{filename}"
+            image_url = f"http://{self.domain}:{self.rest_api_port}/images/room_{room_number}/{filename}"
             logging.info(f"Image uploaded successfully: {image_url}")
             return image_url, 200
 
@@ -160,12 +161,39 @@ class FlaskImageServer:
     def serve_image(self, filename):
         return send_from_directory(self.image_store_path, filename)
 
-    def start_server(self):
-        self.app.run(host=self.host, port=self.port)
+    async def websocket_handler(self, websocket, path):
+        self.websocket_clients.add(websocket)
+        logging.info(f"New WebSocket connection: {websocket.remote_address}")
+        try:
+            async for message in websocket:
+                pass
+        finally:
+            self.websocket_clients.remove(websocket)
+            logging.info(f"WebSocket connection closed: {websocket.remote_address}")
+
+    async def notify_clients(self, room_number: int):
+        if self.websocket_clients:
+            message = str(room_number)
+            logging.info(f"Sending WebSocket message: {message}")
+            await asyncio.gather(*[client.send(message) for client in self.websocket_clients])
+
+    def start_rest_api_server(self):
+        self.app.run(host=self.host, port=self.rest_api_port)
+
+    async def start_websocket_server(self):
+        self.websocket_server = await websockets.serve(self.websocket_handler, self.host, self.websocket_port)
+        logging.info(f"WebSocket server started at ws://{self.host}:{self.websocket_port}")
+        await self.websocket_server.wait_closed()
+
+    async def start_servers(self):
+        await asyncio.gather(
+            asyncio.to_thread(self.start_rest_api_server),
+            self.start_websocket_server()
+        )
 
 
 if __name__ == '__main__':
     config_file_path = 'path_to_config.ini'
     image_store_path = 'path_to_image_store'
     server = FlaskImageServer(config_file_path, image_store_path)
-    server.start_server()
+    asyncio.run(server.start_servers())
