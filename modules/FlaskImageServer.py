@@ -1,10 +1,10 @@
+import asyncio
 from flask import Flask, request, jsonify, send_from_directory
 from PIL import Image
 import os
 import time
 import configparser
 import logging
-import asyncio
 import websockets
 from typing import List, Tuple, Union
 import json
@@ -36,9 +36,13 @@ class FlaskImageServer:
             return jsonify({'error': f'Room {room_id} does not exist'}), 404
 
         files = [f for f in os.listdir(room_folder_path) if f.endswith('.png')]
-        files.sort(key=lambda x: os.path.getmtime(os.path.join(room_folder_path, x)), reverse=False)
 
-        latest_images = [f"http://{self.domain}:{self.rest_api_port}/images/room_{room_id}/{file}" for file in files[:num_images]]
+        # Sort by creation time, oldest first
+        files.sort(key=lambda x: os.path.getctime(os.path.join(room_folder_path, x)), reverse=False)
+
+        # Get the last num_images files
+        latest_images = [f"http://{self.domain}:{self.rest_api_port}/images/room_{room_id}/{file}" for file in files[-num_images:]]
+
         while len(latest_images) < num_images:
             latest_images.insert(0, "")
 
@@ -87,7 +91,7 @@ class FlaskImageServer:
 
         return colors
 
-    def save_image(self, pixels: List[str], width: int, height: int, room_number: int) -> str:
+    def save_image(self, pixels: List[str], width: int, height: int, room_number: int, notify_clients: bool) -> str:
         image = Image.new("RGB", (width, height))
         pixel_data = [self.hex_to_rgb(hex_color) for hex_color in pixels]
         image.putdata(pixel_data)
@@ -101,34 +105,11 @@ class FlaskImageServer:
 
         self.cleanup_old_images(room_number)
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(self.notify_clients(room_number))
-        loop.close()
+        if notify_clients:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self.notify_clients(room_number))
 
         return save_image_path
-
-
-    # def save_image(self, pixels: List[str], width: int, height: int, room_number: int) -> str:
-    #     image = Image.new("RGB", (width, height))
-    #     pixel_data = [self.hex_to_rgb(hex_color) for hex_color in pixels]
-    #     image.putdata(pixel_data)
-    #     filename = f"{int(time.time())}.png"
-    #
-    #     save_image_path = os.path.abspath(os.path.join(self.image_store_path, f"room_{room_number}", filename))
-    #     os.makedirs(os.path.dirname(save_image_path), exist_ok=True)
-    #     logging.info(f"Saving image to {save_image_path}")
-    #     image.save(save_image_path)
-    #     logging.info(f"{width}x{height} image with {len(pixel_data)} pixels saved to {save_image_path}")
-    #
-    #     self.cleanup_old_images(room_number)
-    #
-    #     loop = asyncio.new_event_loop()
-    #     asyncio.set_event_loop(loop)
-    #     loop.run_until_complete(self.notify_clients(room_number))
-    #     loop.close()
-    #
-    #     return save_image_path
 
     def cleanup_old_images(self, room_number: int):
         room_folder_path = os.path.join(self.image_store_path, f"room_{room_number}")
@@ -156,10 +137,10 @@ class FlaskImageServer:
             logging.error(f"Error converting hex string {hex_str} to RGB: {e}")
             return 0, 0, 0
 
-    def upload_image(self, pixel_data: str, width: int, height: int, room_number: int) -> Union[str, Tuple[dict, int]]:
+    def upload_image(self, pixel_data: str, width: int, height: int, room_number: int, notify_clients: bool) -> Union[str, Tuple[dict, int]]:
         pixels = self.parse_hex_colors(pixel_data)
         if len(pixels) == width * height:
-            save_image_path = self.save_image(pixels, width, height, room_number)
+            save_image_path = self.save_image(pixels, width, height, room_number, notify_clients)
             filename = os.path.basename(save_image_path)
             image_url = f"http://{self.domain}:{self.rest_api_port}/images/room_{room_number}/{filename}"
             logging.info(f"Image uploaded successfully: {image_url}")
@@ -174,7 +155,7 @@ class FlaskImageServer:
         width = int(request.args.get('width'))
         height = int(request.args.get('height'))
         room_number = int(request.args.get('room', 0))
-        response = self.upload_image(pixel_data, width, height, room_number)
+        response = self.upload_image(pixel_data, width, height, room_number, notify_clients=False)
         if isinstance(response, str):
             return response, 200
         else:
@@ -213,7 +194,7 @@ class FlaskImageServer:
                 width = int(query_params.get('width'))
                 height = int(query_params.get('height'))
                 room_id = int(query_params.get('room_id', 0))
-                response = self.upload_image(body, width, height, room_id)
+                response = self.upload_image(body, width, height, room_id, notify_clients=True)
                 if isinstance(response, str):
                     await websocket.send("upload_image_response=" + response)
                 else:
@@ -232,12 +213,6 @@ class FlaskImageServer:
                 await websocket.send(f"Error handling WebSocket message: {e}")
             except Exception as e:
                 logging.error(f"Error sending error message to WebSocket client: {e}")
-
-    # async def notify_clients(self, room_number: int):
-    #     if self.websocket_clients:
-    #         message = str(room_number)
-    #         logging.info(f"Sending WebSocket message: {message}")
-    #         await asyncio.gather(*[client.send(message) for client in self.websocket_clients])
 
     async def notify_clients(self, room_number: int):
         if self.websocket_clients:
