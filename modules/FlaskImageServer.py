@@ -174,7 +174,7 @@ class FlaskImageServer:
             logging.error(f"Error getting latest images: {e}")
             return jsonify({'error': f'Error getting latest images: {e}'}), 400
 
-    async def websocket_handler(self, websocket, path):
+    async def websocket_handler(self, websocket):
         self.websocket_clients.add(websocket)
         logging.info(f"New WebSocket connection: {websocket.remote_address}")
         try:
@@ -225,11 +225,10 @@ class FlaskImageServer:
 
     async def start_websocket_server(self):
         # Set max_size and read limit for a message to 1MB
-        self.websocket_server = await websockets.serve(self.websocket_handler,
-                                                       self.host,
-                                                       self.websocket_port,
+        self.websocket_server = await websockets.serve(handler=self.websocket_handler,
+                                                       host=self.host,
+                                                       port=self.websocket_port,
                                                        max_size=1048576 * 4,
-                                                       read_limit=1048576 * 4,
                                                        write_limit=1048576 * 4)
         logging.info(f"WebSocket server started at ws://{self.host}:{self.websocket_port}")
         await self.websocket_server.wait_closed()
